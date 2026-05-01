@@ -11,6 +11,11 @@ Run with:
 import os
 import json
 import tempfile
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
 from datetime import datetime, timedelta
 
 import streamlit as st
@@ -36,7 +41,9 @@ st.set_page_config(
 # ─────────────────────────────────────────────
 
 load_dotenv()
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY        = os.getenv("GEMINI_API_KEY")
+GMAIL_SENDER   = os.getenv("GMAIL_SENDER")
+GMAIL_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 
 if not API_KEY:
     st.error("❌ GEMINI_API_KEY não encontrada. Verifique o arquivo .env.")
@@ -179,6 +186,49 @@ def build_ics(medications: list) -> bytes:
             cal.add_component(event)
 
     return cal.to_ical()
+
+
+# ─────────────────────────────────────────────
+# STEP 6: HELPER — SEND EMAIL VIA GMAIL SMTP
+# ─────────────────────────────────────────────
+
+def send_email(recipient: str, patient: str, ics_bytes: bytes) -> None:
+    """
+    Sends the .ics file as an email attachment using Gmail SMTP.
+    Requires GMAIL_SENDER and GMAIL_APP_PASSWORD in the .env file.
+    Raises an exception if sending fails so the caller can show the error.
+    """
+    msg = MIMEMultipart()
+    msg["From"]    = GMAIL_SENDER
+    msg["To"]      = recipient
+    msg["Subject"] = f"🐾 Agenda de medicamentos — {patient}"
+
+    body = (
+        f"Olá! 😊\n\n"
+        f"Segue em anexo a agenda de medicamentos do(a) {patient}.\n\n"
+        f"Para importar no Google Agenda:\n"
+        f"1. Abra o Google Agenda no celular ou computador\n"
+        f"2. Toque no arquivo anexo — ele vai perguntar se quer importar\n"
+        f"3. Confirme e pronto! Os lembretes aparecem automaticamente 📅\n\n"
+        f"Com carinho, Pet-Med-Parser 🐾"
+    )
+    msg.attach(MIMEText(body, "plain", "utf-8"))
+
+    # Attach the .ics file
+    attachment = MIMEBase("text", "calendar")
+    attachment.set_payload(ics_bytes)
+    encoders.encode_base64(attachment)
+    attachment.add_header(
+        "Content-Disposition",
+        f'attachment; filename="agenda_{patient.lower()}.ics"',
+    )
+    msg.attach(attachment)
+
+    # Connect to Gmail's SMTP server using TLS (port 587)
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.starttls()
+        server.login(GMAIL_SENDER, GMAIL_PASSWORD)
+        server.sendmail(GMAIL_SENDER, recipient, msg.as_string())
 
 
 PATIENTS = ["Arya", "Nino", "Aécio"]
@@ -419,19 +469,57 @@ elif st.session_state.stage == "success":
 
     ics_bytes = build_ics(medications)
 
-    st.markdown("### 📅 Pronto para importar no Google Agenda!")
-    st.markdown(
-        "Clique no botão abaixo para baixar o arquivo, depois abra o Google Agenda "
-        "→ **Configurações** → **Importar e exportar** → **Importar**."
-    )
+    st.markdown("### 📅 Como você quer enviar a agenda?")
+    col_download, col_email = st.columns(2)
 
-    if st.download_button(
-        label="📅 Baixar Agenda para o Google Calendar",
-        data=ics_bytes,
-        file_name=f"agenda_{patient.lower()}.ics",
-        mime="text/calendar",
-        use_container_width=True,
-        type="primary",
-        on_click=lambda: st.session_state.update({"stage": "done"}),
-    ):
-        st.rerun()
+    # ── Option 1: Download file ──
+    with col_download:
+        st.markdown("**💾 Baixar arquivo**")
+        st.caption("Salva o arquivo no seu celular/computador para importar manualmente.")
+        if st.download_button(
+            label="📅 Baixar .ics",
+            data=ics_bytes,
+            file_name=f"agenda_{patient.lower()}.ics",
+            mime="text/calendar",
+            use_container_width=True,
+            type="primary",
+            on_click=lambda: st.session_state.update({"stage": "done"}),
+        ):
+            st.rerun()
+
+    # ── Option 2: Send via Gmail ──
+    with col_email:
+        st.markdown("**📧 Enviar por email**")
+        st.caption("A agenda chega como anexo — é só tocar para importar.")
+
+        # Only show the email option if Gmail credentials are configured
+        if not GMAIL_SENDER or not GMAIL_PASSWORD:
+            st.warning("Configure GMAIL_SENDER e GMAIL_APP_PASSWORD no .env para usar esta opção.")
+        else:
+            with st.form("email_form"):
+                recipient = st.text_input(
+                    "Email de destino",
+                    placeholder="email@gmail.com",
+                )
+                send_clicked = st.form_submit_button(
+                    "📨 Enviar agora",
+                    use_container_width=True,
+                    type="primary",
+                )
+
+            if send_clicked:
+                if not recipient or "@" not in recipient:
+                    st.error("Por favor, digite um email válido.")
+                else:
+                    with st.spinner("Enviando email..."):
+                        try:
+                            send_email(recipient, patient, ics_bytes)
+                            st.success(f"✅ Email enviado para **{recipient}**! 🎉")
+                            st.info(
+                                "Diga para a mamãe abrir o email e tocar no arquivo anexo — "
+                                "o Google Agenda vai perguntar se quer importar automaticamente. 📅"
+                            )
+                            # Reset after a short moment so she can send to another if needed
+                            st.session_state.stage = "done"
+                        except Exception as e:
+                            st.error(f"❌ Erro ao enviar email: {e}")
