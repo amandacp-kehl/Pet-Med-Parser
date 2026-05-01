@@ -54,24 +54,38 @@ You are a highly precise veterinary data extractor. Your only job is to read
 handwritten or printed prescription images and extract ALL medication instructions
 into a strict JSON format.
 
---- FEW-SHOT EXAMPLE ---
-Input image content:
-  1. Give Arya half a pill of Vetmedin 5mg every 12 hours.
-  2. Give Arya 1 pill of Enalapril 2.5mg once a day.
+--- LANGUAGE NOTE ---
+All prescriptions are written in Brazilian Portuguese (pt-BR). Common terms you will see:
+- "meio comprimido" or "(1/2)" = half a tablet → dosage_mg = half the pill strength (e.g. 20mg pill → 10mg)
+- "1 e meio" or "1 + 1/2" or "1,5 comprimido" = 1.5 tablets → multiply pill strength by 1.5
+- "uma vez ao dia" = once a day → interval_hours = 24
+- "a cada 12h" or "duas vezes ao dia" = every 12 hours → interval_hours = 12
+- "a cada 8h" or "três vezes ao dia" = every 8 hours → interval_hours = 8
+- "comprimido", "cápsula", "cp", "cps" = tablet/capsule
 
-Expected output:
+--- FEW-SHOT EXAMPLES ---
+Input: "1. Prediderm 20mg — dar meio comprimido (1/2), a cada 24h"
+Output item: { "medication": "Prediderm", "dosage_mg": 10.0, "interval_hours": 24, "needs_human_review": false }
+
+Input: "2. Condroplexo 100 — dar 1 e meio (1/2), uma vez ao dia"
+Output item: { "medication": "Condroplexo", "dosage_mg": 150.0, "interval_hours": 24, "needs_human_review": false }
+
+Input: "3. Vetmedin 5mg — dar meio comprimido a cada 12h"
+Output item: { "medication": "Vetmedin", "dosage_mg": 2.5, "interval_hours": 12, "needs_human_review": false }
+
+Full expected output format:
 [
   {
     "patient": "Arya",
-    "medication": "Vetmedin",
-    "dosage_mg": 2.5,
-    "interval_hours": 12,
+    "medication": "Prediderm",
+    "dosage_mg": 10.0,
+    "interval_hours": 24,
     "needs_human_review": false
   },
   {
     "patient": "Arya",
-    "medication": "Enalapril",
-    "dosage_mg": 2.5,
+    "medication": "Condroplexo",
+    "dosage_mg": 150.0,
     "interval_hours": 24,
     "needs_human_review": false
   }
@@ -82,13 +96,16 @@ Expected output:
    medication, wrap it in a list: [{ ... }].
 2. No extra text, no markdown, no explanation outside the JSON.
 3. Extract EVERY numbered medication item you find in the image. Do NOT skip any.
-4. If the handwriting of a specific item is ambiguous or the dosage is unclear,
-   set for THAT item only:
+4. Always calculate the actual dosage in mg based on the pill strength × quantity.
+   Example: "meio comprimido de 20mg" → dosage_mg = 10.0
+   Example: "1 e meio comprimido de 100mg" → dosage_mg = 150.0
+5. If the handwriting of a specific item is truly illegible and you cannot determine
+   the dosage or interval even after careful reading, set for THAT item only:
    - "needs_human_review": true
    - "dosage_mg": null
    DO NOT guess. A wrong dosage can harm a sick animal.
-5. "interval_hours" must be a number (e.g., 12 for every 12 hours, 24 for once daily).
-6. "patient" must be the animal's name exactly as written.
+6. "interval_hours" must be a number (e.g., 12 for every 12 hours, 24 for once daily).
+7. "patient" must be the animal's name exactly as written in the "Paciente" field.
 
 Now extract ALL medication items from the attached prescription image.
 """
@@ -331,8 +348,9 @@ elif st.session_state.stage == "review":
         parsed = []
         for i, item in enumerate(confirmed):
             try:
-                dosage   = float(item["_dosage_str"])
-                interval = int(item["_interval_str"])
+                # Accept both "1.5" (English) and "1,5" (Brazilian) decimal formats
+                dosage   = float(item["_dosage_str"].replace(",", "."))
+                interval = int(item["_interval_str"].replace(",", "."))
             except ValueError:
                 errors.append(
                     f"Medicamento {i + 1} ({item['medication']}): "

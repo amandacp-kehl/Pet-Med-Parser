@@ -24,13 +24,23 @@ Keeping track of multiple prescriptions was overwhelming for my mom. This applic
 
 ## 🧠 Core Prompt Engineering Logic
 
-To prevent LLM hallucinations, the API is called using a strict 3-tier framework:
+To prevent LLM hallucinations, the API is called using a strict 4-tier framework:
 
 1. **Persona:** `"You are a highly precise veterinary data extractor..."`
-2. **Few-Shot Examples:** Clear input/output mappings enforcing a strict JSON list structure.
-3. **Negative Constraints:** `"If the handwriting is ambiguous, force needs_human_review: true and dosage_mg: null. Do NOT guess."`
+2. **Language Context:** The prompt explicitly states that all prescriptions are written in **Brazilian Portuguese (pt-BR)**, and maps common handwritten expressions to their numeric equivalents so the model interprets them correctly instead of flagging them as ambiguous:
 
-When a prescription is flagged, the app enters a **Manual Review screen** where the user can correct any field before the calendar is generated. The patient name is always a fixed dropdown (`Arya`, `Nino`, `Aécio`) to prevent the AI from hallucinating unrecognised names.
+   | Handwritten expression | Interpreted as |
+   |---|---|
+   | `"meio comprimido"` / `"(1/2)"` | 0.5 × pill strength |
+   | `"1 e meio"` / `"1 + 1/2"` | 1.5 × pill strength |
+   | `"uma vez ao dia"` | `interval_hours: 24` |
+   | `"duas vezes ao dia"` / `"a cada 12h"` | `interval_hours: 12` |
+   | `"três vezes ao dia"` / `"a cada 8h"` | `interval_hours: 8` |
+
+3. **Few-Shot Examples:** Real-world pt-BR prescription examples with expected JSON output, including fractional dose calculations (e.g. `"Prediderm 20mg — meio comprimido"` → `dosage_mg: 10.0`).
+4. **Negative Constraints:** `"If the handwriting is truly illegible, force needs_human_review: true and dosage_mg: null. Do NOT guess."`
+
+When a prescription is flagged, the app enters a **Manual Review screen** where the user can correct any field before the calendar is generated. The patient name is always a fixed dropdown (`Arya`, `Nino`, `Aécio`) to prevent the AI from hallucinating unrecognised names. Dosage fields accept both `.` and `,` as decimal separators (e.g. `1.5` or `1,5`).
 
 ---
 
