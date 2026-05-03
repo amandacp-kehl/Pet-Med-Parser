@@ -4,6 +4,10 @@
 ![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B)
 ![Gemini](https://img.shields.io/badge/Google%20Gemini-2.5%20Flash-orange)
 
+![Demo](project_gif.gif)
+
+---
+
 ## 📖 The Context (Why I built this)
 
 As a Technical Support Engineer, I love using AI to solve real-world logistical problems. I built this tool to manage the highly complex medication schedules of my three senior dogs: **Arya** (16, heart issues), **Aécio** (13, liver cancer), and **Nino** (8, stomach problems).
